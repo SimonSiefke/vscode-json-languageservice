@@ -378,6 +378,11 @@ export class JSONSchemaService implements IJSONSchemaService {
 					if (handle.clearSchema()) {
 						hasChanges = true;
 					}
+					// Dynamically discovered schemas can be loaded again on demand. Do not
+					// keep an empty handle for every changed or deleted schema URI.
+					if (!this.registeredSchemasIds[handle.uri] && !this.contributionSchemas[handle.uri]) {
+						delete this.schemasById[handle.uri];
+					}
 					all[i] = undefined;
 				}
 			}
