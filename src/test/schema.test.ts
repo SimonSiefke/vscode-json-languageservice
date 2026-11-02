@@ -2259,6 +2259,53 @@ suite('JSON Schema', () => {
 
 	});
 
+	test('resetSchema releases dynamically discovered schema handles', async function () {
+		const service = new SchemaService.JSONSchemaService(async () => JSON.stringify({ type: 'string' }), workspaceContext);
+		for (let i = 0; i < 37; i++) {
+			const uri = `file:///schemas/churn-${i}.json`;
+			const document = toDocument(JSON.stringify({ $schema: uri }));
+			assert.ok(await service.getSchemaForResource(document.textDoc.uri, document.jsonDoc));
+			assert.strictEqual(service.onResourceChange(uri), true);
+			assert.strictEqual(await service.getResolvedSchema(uri), undefined);
+		}
+	});
+
+	test('resetSchema releases unregistered dependents and reloads them on demand', async function () {
+		const rootUri = 'http://schemas/root.json';
+		const childUri = 'http://schemas/child.json';
+		const schemas: { [uri: string]: JSONSchema } = {
+			[rootUri]: { $ref: childUri },
+			[childUri]: { type: 'string' }
+		};
+		const service = new SchemaService.JSONSchemaService(newMockRequestService(schemas), workspaceContext);
+		const document = toDocument(JSON.stringify({ $schema: rootUri }));
+		assert.strictEqual((await service.getSchemaForResource(document.textDoc.uri, document.jsonDoc))?.schema.type, 'string');
+		service.onResourceChange(childUri);
+		assert.strictEqual(await service.getResolvedSchema(rootUri), undefined);
+		assert.strictEqual(await service.getResolvedSchema(childUri), undefined);
+		schemas[childUri] = { type: 'number' };
+		assert.strictEqual((await service.getSchemaForResource(document.textDoc.uri, document.jsonDoc))?.schema.type, 'number');
+	});
+
+	test('resetSchema preserves registered and contributed handles', async function () {
+		const registeredUri = 'http://schemas/registered.json';
+		const contributedUri = 'http://schemas/contributed.json';
+		const schemas: { [uri: string]: JSONSchema } = {
+			[registeredUri]: { type: 'string' },
+			[contributedUri]: { type: 'number' }
+		};
+		const service = new SchemaService.JSONSchemaService(newMockRequestService(schemas), workspaceContext);
+		const registered = service.registerExternalSchema({ uri: registeredUri });
+		service.setSchemaContributions({ schemas: { [contributedUri]: schemas[contributedUri] } });
+		await service.getResolvedSchema(registeredUri);
+		await service.getResolvedSchema(contributedUri);
+		service.onResourceChange(registeredUri);
+		service.onResourceChange(contributedUri);
+		assert.strictEqual(service.registerExternalSchema({ uri: registeredUri }), registered);
+		assert.strictEqual((await service.getResolvedSchema(registeredUri))?.schema.type, 'string');
+		assert.strictEqual((await service.getResolvedSchema(contributedUri))?.schema.type, 'number');
+	});
+
 	test('resetSchema', async function () {
 		const mainSchemaURI = "http://foo/main.schema.json";
 		const aSchemaURI1 = "http://foo/a.schema.json";
